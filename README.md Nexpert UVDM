@@ -1,0 +1,48 @@
+import requests, time, hmac, hashlib
+from substrateinterface import SubstrateInterface
+from xrpl.clients import JsonRpcClient
+
+# Prompt for secure API credentials
+def get_api_credentials():
+    return {
+        'nexo_api_key': input("Nexo API Key: "),
+        'mexc_api_key': input("MEXC API Key: "),
+        'mexc_api_secret': input("MEXC API Secret: "),
+        'bifrost_endpoint': input("Bifrost RPC Endpoint: ") or "wss://bifrost-public-rpc.polkadot.io"
+    }
+
+# Nexo: Get account balance
+def get_nexo_balance(api_key):
+    url = "https://api.nexo.com/v1/balances"
+    headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
+    response = requests.get(url, headers=headers)
+    return response.json() if response.status_code == 200 else None
+
+# MEXC: Place limit order
+def place_mexc_order(api_key, api_secret, symbol, side, quantity, price):
+    timestamp = int(time.time() * 1000)
+    params = {"symbol": symbol, "side": side, "type": "LIMIT", "quantity": quantity, "price": price, "timestamp": timestamp}
+    query = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
+    signature = hmac.new(api_secret.encode(), query.encode(), hashlib.sha256).hexdigest()
+    params["signature"] = signature
+    headers = {"X-MEXC-APIKEY": api_key}
+    response = requests.post("https://api.mexc.com/api/v3/order", headers=headers, data=params)
+    return response.json() if response.status_code == 200 else None
+
+# BIFROST: Query staking rewards
+def query_bifrost_staking(endpoint):
+    substrate = SubstrateInterface(url=endpoint)
+    call = substrate.query('System', 'Account', params=['YOUR_BIFROST_ADDRESS'])
+    return call.value
+
+# Main automation loop
+def main():
+    creds = get_api_credentials()
+    balance = get_nexo_balance(creds['nexo_api_key'])
+    if balance and balance.get('xlm', 0) >= 17126:  # Check for collateral swap
+        place_mexc_order(creds['mexc_api_key'], creds['mexc_api_secret'], "XLMUSDT", "SELL", "17126", "1.00")
+    bifrost_data = query_bifrost_staking(creds['bifrost_endpoint'])
+    print("Portfolio Status:", balance, bifrost_data)
+
+if __name__ == "__main__":
+    main()
